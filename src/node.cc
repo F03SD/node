@@ -185,7 +185,7 @@ void ArrayBufferAllocator::Free(void* data, size_t length) {
 }
 
 
-static void CheckImmediate(uv_check_t* handle, int status) {
+static void CheckImmediate(uv_check_t* handle) {
   Environment* env = Environment::from_immediate_check_handle(handle);
   HandleScope scope(env->isolate());
   Context::Scope context_scope(env->context());
@@ -193,7 +193,7 @@ static void CheckImmediate(uv_check_t* handle, int status) {
 }
 
 
-static void IdleImmediateDummy(uv_idle_t*, int) {
+static void IdleImmediateDummy(uv_idle_t* handle) {
   // Do nothing. Only for maintaining event loop.
   // TODO(bnoordhuis) Maybe make libuv accept NULL idle callbacks.
 }
@@ -1491,7 +1491,7 @@ static void ReportException(Environment* env, const TryCatch& try_catch) {
 // Executes a str within the current v8 context.
 static Local<Value> ExecuteString(Environment* env,
                                   Handle<String> source,
-                                  Handle<Value> filename) {
+                                  Handle<String> filename) {
   EscapableHandleScope scope(env->isolate());
   TryCatch try_catch;
 
@@ -1598,16 +1598,10 @@ static void Cwd(const FunctionCallbackInfo<Value>& args) {
     return env->ThrowUVException(err, "uv_cwd");
   }
 
-#ifdef _WIN32
-  // TODO(tjfontaine) in the future libuv will report the size include the null
-  // for now only windows does, remove conditionals after libuv upgrade
-  cwd_len -= 1;
-#endif
-
   Local<String> cwd = String::NewFromUtf8(env->isolate(),
                                           buf,
                                           String::kNormalString,
-                                          cwd_len);
+                                          cwd_len - 1);
   args.GetReturnValue().Set(cwd);
 }
 
@@ -2453,6 +2447,13 @@ static Handle<Object> GetFeatures(Environment* env) {
 #endif
   obj->Set(env->tls_sni_string(), tls_sni);
 
+#if !defined(OPENSSL_NO_TLSEXT) && defined(SSL_CTX_set_tlsext_status_cb)
+  Local<Boolean> tls_ocsp = True(env->isolate());
+#else
+  Local<Boolean> tls_ocsp = False(env->isolate());
+#endif  // !defined(OPENSSL_NO_TLSEXT) && defined(SSL_CTX_set_tlsext_status_cb)
+  obj->Set(env->tls_ocsp_string(), tls_ocsp);
+
   obj->Set(env->tls_string(),
            Boolean::New(env->isolate(), get_builtin_module("crypto") != NULL));
 
@@ -2520,13 +2521,13 @@ static void NeedImmediateCallbackSetter(
 }
 
 
-void SetIdle(uv_prepare_t* handle, int) {
+void SetIdle(uv_prepare_t* handle) {
   Environment* env = Environment::from_idle_prepare_handle(handle);
   env->isolate()->GetCpuProfiler()->SetIdle(true);
 }
 
 
-void ClearIdle(uv_check_t* handle, int) {
+void ClearIdle(uv_check_t* handle) {
   Environment* env = Environment::from_idle_check_handle(handle);
   env->isolate()->GetCpuProfiler()->SetIdle(false);
 }
@@ -2799,9 +2800,9 @@ static void AtExit() {
 }
 
 
-static void SignalExit(int signal) {
+static void SignalExit(int signo) {
   uv_tty_reset_mode();
-  _exit(128 + signal);
+  raise(signo);
 }
 
 
@@ -3103,7 +3104,7 @@ static void EnableDebug(Isolate* isolate, bool wait_connect) {
 
 
 // Called from the main thread.
-static void DispatchDebugMessagesAsyncCallback(uv_async_t* handle, int status) {
+static void DispatchDebugMessagesAsyncCallback(uv_async_t* handle) {
   if (debugger_running == false) {
     fprintf(stderr, "Starting debugger agent.\n");
     EnableDebug(node_isolate, false);
@@ -3137,12 +3138,15 @@ static void EnableDebugSignalHandler(int signo) {
 }
 
 
-static void RegisterSignalHandler(int signal, void (*handler)(int signal)) {
+static void RegisterSignalHandler(int signal,
+                                  void (*handler)(int signal),
+                                  bool reset_handler = false) {
   struct sigaction sa;
   memset(&sa, 0, sizeof(sa));
   sa.sa_handler = handler;
+  sa.sa_flags = reset_handler ? SA_RESETHAND : 0;
   sigfillset(&sa.sa_mask);
-  sigaction(signal, &sa, NULL);
+  CHECK_EQ(sigaction(signal, &sa, NULL), 0);
 }
 
 
@@ -3355,6 +3359,13 @@ void Init(int* argc,
                 DispatchDebugMessagesAsyncCallback);
   uv_unref(reinterpret_cast<uv_handle_t*>(&dispatch_debug_messages_async));
 
+#if defined(NODE_V8_OPTIONS)
+  // Should come before the call to V8::SetFlagsFromCommandLine()
+  // so the user can disable a flag --foo at run-time by passing
+  // --no_foo from the command line.
+  V8::SetFlagsFromString(NODE_V8_OPTIONS, sizeof(NODE_V8_OPTIONS) - 1);
+#endif
+
   // Parse a few arguments which are specific to Node.
   int v8_argc;
   const char** v8_argv;
@@ -3422,8 +3433,8 @@ void Init(int* argc,
   }
   // Ignore SIGPIPE
   RegisterSignalHandler(SIGPIPE, SIG_IGN);
-  RegisterSignalHandler(SIGINT, SignalExit);
-  RegisterSignalHandler(SIGTERM, SignalExit);
+  RegisterSignalHandler(SIGINT, SignalExit, true);
+  RegisterSignalHandler(SIGTERM, SignalExit, true);
 #endif  // __POSIX__
 
   V8::SetFatalErrorHandler(node::OnFatalError);

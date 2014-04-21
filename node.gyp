@@ -13,6 +13,7 @@
     'node_use_openssl%': 'true',
     'node_shared_openssl%': 'false',
     'node_use_mdb%': 'false',
+    'node_v8_options%': '',
     'library_files': [
       'src/node.js',
       'lib/_debugger.js',
@@ -58,6 +59,7 @@
       'lib/timers.js',
       'lib/tracing.js',
       'lib/tls.js',
+      'lib/_tls_common.js',
       'lib/_tls_legacy.js',
       'lib/_tls_wrap.js',
       'lib/tty.js',
@@ -158,6 +160,7 @@
         'ARCH="<(target_arch)"',
         'PLATFORM="<(OS)"',
         'NODE_TAG="<(node_tag)"',
+        'NODE_V8_OPTIONS="<(node_v8_options)"',
       ],
 
       'conditions': [

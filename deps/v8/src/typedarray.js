@@ -49,16 +49,24 @@ endmacro
 
 macro TYPED_ARRAY_CONSTRUCTOR(ARRAY_ID, NAME, ELEMENT_SIZE)
   function NAMEConstructByArrayBuffer(obj, buffer, byteOffset, length) {
+    if (!IS_UNDEFINED(byteOffset)) {
+        byteOffset =
+            ToPositiveInteger(byteOffset,  "invalid_typed_array_length");
+    }
+    if (!IS_UNDEFINED(length)) {
+        length = ToPositiveInteger(length, "invalid_typed_array_length");
+    }
+
     var bufferByteLength = %ArrayBufferGetByteLength(buffer);
     var offset;
     if (IS_UNDEFINED(byteOffset)) {
       offset = 0;
     } else {
-      offset = ToPositiveInteger(byteOffset, "invalid_typed_array_length");
+      offset = byteOffset;
 
       if (offset % ELEMENT_SIZE !== 0) {
         throw MakeRangeError("invalid_typed_array_alignment",
-            "start offset", "NAME", ELEMENT_SIZE);
+            ["start offset", "NAME", ELEMENT_SIZE]);
       }
       if (offset > bufferByteLength) {
         throw MakeRangeError("invalid_typed_array_offset");
@@ -70,36 +78,41 @@ macro TYPED_ARRAY_CONSTRUCTOR(ARRAY_ID, NAME, ELEMENT_SIZE)
     if (IS_UNDEFINED(length)) {
       if (bufferByteLength % ELEMENT_SIZE !== 0) {
         throw MakeRangeError("invalid_typed_array_alignment",
-          "byte length", "NAME", ELEMENT_SIZE);
+          ["byte length", "NAME", ELEMENT_SIZE]);
       }
       newByteLength = bufferByteLength - offset;
       newLength = newByteLength / ELEMENT_SIZE;
     } else {
-      var newLength = ToPositiveInteger(length, "invalid_typed_array_length");
+      var newLength = length;
       newByteLength = newLength * ELEMENT_SIZE;
     }
     if ((offset + newByteLength > bufferByteLength)
-        || (newLength > %MaxSmi())) {
+        || (newLength > %_MaxSmi())) {
       throw MakeRangeError("invalid_typed_array_length");
     }
-    %TypedArrayInitialize(obj, ARRAY_ID, buffer, offset, newByteLength);
+    %_TypedArrayInitialize(obj, ARRAY_ID, buffer, offset, newByteLength);
   }
 
   function NAMEConstructByLength(obj, length) {
     var l = IS_UNDEFINED(length) ?
       0 : ToPositiveInteger(length, "invalid_typed_array_length");
-    if (l > %MaxSmi()) {
+    if (l > %_MaxSmi()) {
       throw MakeRangeError("invalid_typed_array_length");
     }
     var byteLength = l * ELEMENT_SIZE;
-    var buffer = new $ArrayBuffer(byteLength);
-    %TypedArrayInitialize(obj, ARRAY_ID, buffer, 0, byteLength);
+    if (byteLength > %_TypedArrayMaxSizeInHeap()) {
+      var buffer = new $ArrayBuffer(byteLength);
+      %_TypedArrayInitialize(obj, ARRAY_ID, buffer, 0, byteLength);
+    } else {
+      %_TypedArrayInitialize(obj, ARRAY_ID, null, 0, byteLength);
+    }
   }
 
   function NAMEConstructByArrayLike(obj, arrayLike) {
     var length = arrayLike.length;
     var l = ToPositiveInteger(length, "invalid_typed_array_length");
-    if (l > %MaxSmi()) {
+
+    if (l > %_MaxSmi()) {
       throw MakeRangeError("invalid_typed_array_length");
     }
     if(!%TypedArrayInitializeFromArrayLike(obj, ARRAY_ID, arrayLike, l)) {
@@ -148,15 +161,19 @@ function TypedArrayGetLength() {
 
 function CreateSubArray(elementSize, constructor) {
   return function(begin, end) {
-    var srcLength = %TypedArrayGetLength(this);
     var beginInt = TO_INTEGER(begin);
+    if (!IS_UNDEFINED(end)) {
+      end = TO_INTEGER(end);
+    }
+
+    var srcLength = %TypedArrayGetLength(this);
     if (beginInt < 0) {
       beginInt = MathMax(0, srcLength + beginInt);
     } else {
       beginInt = MathMin(srcLength, beginInt);
     }
 
-    var endInt = IS_UNDEFINED(end) ? srcLength : TO_INTEGER(end);
+    var endInt = IS_UNDEFINED(end) ? srcLength : end;
     if (endInt < 0) {
       endInt = MathMax(0, srcLength + endInt);
     } else {
@@ -244,7 +261,7 @@ function TypedArraySet(obj, offset) {
     throw MakeTypeError("typed_array_set_negative_offset");
   }
 
-  if (intOffset > %MaxSmi()) {
+  if (intOffset > %_MaxSmi()) {
     throw MakeRangeError("typed_array_set_source_too_large");
   }
   switch (%TypedArraySetFastCases(this, obj, intOffset)) {
@@ -317,18 +334,27 @@ function DataViewConstructor(buffer, byteOffset, byteLength) { // length = 3
     if (!IS_ARRAYBUFFER(buffer)) {
       throw MakeTypeError('data_view_not_array_buffer', []);
     }
+    if (!IS_UNDEFINED(byteOffset)) {
+        byteOffset = ToPositiveInteger(byteOffset, 'invalid_data_view_offset');
+    }
+    if (!IS_UNDEFINED(byteLength)) {
+        byteLength = TO_INTEGER(byteLength);
+    }
+
     var bufferByteLength = %ArrayBufferGetByteLength(buffer);
-    var offset = IS_UNDEFINED(byteOffset) ?
-      0 : ToPositiveInteger(byteOffset, 'invalid_data_view_offset');
+
+    var offset = IS_UNDEFINED(byteOffset) ?  0 : byteOffset;
     if (offset > bufferByteLength) {
       throw MakeRangeError('invalid_data_view_offset');
     }
-    var length = IS_UNDEFINED(byteLength) ?
-      bufferByteLength - offset : TO_INTEGER(byteLength);
+
+    var length = IS_UNDEFINED(byteLength)
+        ? bufferByteLength - offset
+        : byteLength;
     if (length < 0 || offset + length > bufferByteLength) {
       throw new MakeRangeError('invalid_data_view_length');
     }
-    %DataViewInitialize(this, buffer, offset, length);
+    %_DataViewInitialize(this, buffer, offset, length);
   } else {
     throw MakeTypeError('constructor_not_function', ["DataView"]);
   }

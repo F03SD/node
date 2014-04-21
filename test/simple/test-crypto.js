@@ -58,31 +58,44 @@ var dsaKeyPemEncrypted = fs.readFileSync(
   common.fixturesDir + '/test_dsa_privkey_encrypted.pem', 'ascii');
 
 
+// TODO(indunty): move to a separate test eventually
 try {
-  var credentials = crypto.createCredentials(
-                                             {key: keyPem,
-                                               cert: certPem,
-                                               ca: caPem});
+  var tls = require('tls');
+  var context = tls.createSecureContext({
+    key: keyPem,
+    cert: certPem,
+    ca: caPem
+  });
 } catch (e) {
   console.log('Not compiled with OPENSSL support.');
   process.exit();
 }
 
+// 'this' safety
+// https://github.com/joyent/node/issues/6690
+assert.throws(function() {
+  var options = {key: keyPem, cert: certPem, ca: caPem};
+  var credentials = crypto.createCredentials(options);
+  var context = credentials.context;
+  var notcontext = { setOptions: context.setOptions, setKey: context.setKey };
+  crypto.createCredentials({ secureOptions: 1 }, notcontext);
+}, TypeError);
+
 // PFX tests
 assert.doesNotThrow(function() {
-  crypto.createCredentials({pfx:certPfx, passphrase:'sample'});
+  tls.createSecureContext({pfx:certPfx, passphrase:'sample'});
 });
 
 assert.throws(function() {
-  crypto.createCredentials({pfx:certPfx});
+  tls.createSecureContext({pfx:certPfx});
 }, 'mac verify failure');
 
 assert.throws(function() {
-  crypto.createCredentials({pfx:certPfx, passphrase:'test'});
+  tls.createSecureContext({pfx:certPfx, passphrase:'test'});
 }, 'mac verify failure');
 
 assert.throws(function() {
-  crypto.createCredentials({pfx:'sample', passphrase:'test'});
+  tls.createSecureContext({pfx:'sample', passphrase:'test'});
 }, 'not enough data');
 
 // Test HMAC

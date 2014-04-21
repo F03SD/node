@@ -914,6 +914,13 @@ var buf = new Buffer(0);
 assert.throws(function() { buf.readUInt8(0); }, RangeError);
 assert.throws(function() { buf.readInt8(0); }, RangeError);
 
+var buf = new Buffer([0xFF]);
+
+assert.equal(buf.readUInt8(0), 255);
+assert.equal(buf.readInt8(0), -1);
+
+
+
 [16, 32].forEach(function(bits) {
   var buf = new Buffer(bits / 8 - 1);
 
@@ -932,6 +939,22 @@ assert.throws(function() { buf.readInt8(0); }, RangeError);
   assert.throws(function() { buf['readInt' + bits + 'LE'](0); },
                 RangeError,
                 'readInt' + bits + 'LE()');
+});
+
+[16, 32].forEach(function(bits) {
+  var buf = new Buffer([0xFF, 0xFF, 0xFF, 0xFF]);
+
+  assert.equal(buf['readUInt' + bits + 'BE'](0),
+                (0xFFFFFFFF >>> (32 - bits)));
+
+  assert.equal(buf['readUInt' + bits + 'LE'](0),
+                (0xFFFFFFFF >>> (32 - bits)));
+
+  assert.equal(buf['readInt' + bits + 'BE'](0),
+                (0xFFFFFFFF >> (32 - bits)));
+
+  assert.equal(buf['readInt' + bits + 'LE'](0),
+                (0xFFFFFFFF >> (32 - bits)));
 });
 
 // test Buffer slice
@@ -1003,3 +1026,14 @@ assert.throws(function () {
 assert.throws(function () {
   new SlowBuffer(smalloc.kMaxLength + 1);
 }, RangeError);
+
+// Test truncation after decode
+var crypto = require('crypto');
+
+var b1 = new Buffer('YW55=======', 'base64');
+var b2 = new Buffer('YW55', 'base64');
+
+assert.equal(
+  crypto.createHash('sha1').update(b1).digest('hex'),
+  crypto.createHash('sha1').update(b2).digest('hex')
+);
